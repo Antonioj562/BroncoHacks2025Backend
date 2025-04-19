@@ -186,7 +186,7 @@ app.get('/gemini-insight', requireAuth(), async (req, res) => {
             .slice(0, 7) // only the last 7 days
             .map(entry => entry.mood); // extract just mood scores
 
-        const prompt = `In a small paragraph, based on my daily mood ratings from 0 to 10 over the past few days ${JSON.stringify(mood_ratings)}, give me a short summary of how I've been doing emotionally and suggest simple ways I can continue improving my mental health.`;
+        const prompt = `In two or three small sentences, based on my daily mood ratings from 0 to 10 over the past few days ${JSON.stringify(mood_ratings)}, give me a short summary of how I've been doing emotionally and suggest simple ways I can continue improving my mental health.`;
 
         const apiKey = process.env.GEMINI_API_KEY;
 
