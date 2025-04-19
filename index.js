@@ -3,13 +3,14 @@ import { MongoClient, ServerApiVersion } from 'mongodb';
 import { clerkClient, requireAuth, clerkMiddleware, getAuth } from '@clerk/express';
 import dotenv from 'dotenv/config';
 import cors from 'cors';
+import axios from 'axios';
 
 const app = express();
 const corsOptions = {
-    origin: 'http://localhost:5173', // Frontend URL
-    methods: ['GET', 'POST', 'PUT', 'DELETE'], // Allowed HTTP methods
-    allowedHeaders: ['Content-Type', 'Authorization'], // Allowed headers
-    credentials: true,  // If you need to send cookies or authentication headers
+    origin: 'http://localhost:5173', 
+    methods: ['GET', 'POST', 'PUT', 'DELETE'], 
+    allowedHeaders: ['Content-Type', 'Authorization'], 
+    credentials: true,  
 };
 
 app.use(cors(corsOptions));  // Enable CORS with options
@@ -19,7 +20,10 @@ app.use(clerkMiddleware({
 }));
 app.use(express.json());
 
-const uri = `mongodb+srv://antoniojloyola:${process.env.DB_PASSWORD}@moodcluster.wmce0nu.mongodb.net/?retryWrites=true&w=majority&appName=MoodCluster`;
+
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent';
+
+const uri = `mongodb+srv://antoniojloyola:${process.env.DB_PASSWORD}@MoodCluster.wmce0nu.mongodb.net/?retryWrites=true&w=majority&appName=MoodCluster`;
 
 const client = new MongoClient(uri, {
     serverApi: {
@@ -37,9 +41,8 @@ async function connectDB() {
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. Connected to MongoDB!");
 
-        // Set your collection
-        const db = client.db('MoodData'); // <--- Your DB name
-        moodsCollection = db.collection('UserMood'); // <--- Your collection name
+        const db = client.db('MoodData'); 
+        moodsCollection = db.collection('UserMood'); 
     } catch (error) {
         console.error('MongoDB connection failed:', error);
     }
@@ -102,6 +105,10 @@ app.post('/add-mood', requireAuth(), async (req, res) => {
     }
 });
 
+app.get("/", (req, res) => {
+	res.json({ tip: "Stay hydrated while coding!" });
+});
+
 app.get('/mood-history/:userId', async (req, res) => {
     const { userId } = req.params;
 
@@ -121,13 +128,13 @@ app.get('/mood-history/:userId', async (req, res) => {
 });
 
 app.get('/streak', requireAuth(), async (req, res) => {
-	const { userId } = req.auth;                       // Clerk gives you the userId
+	const { userId } = req.auth;                      
 	try {
 	const userDoc = await moodsCollection.findOne({ userId });
 	if (!userDoc) {
 	return res.status(404).json({ error: 'User not found' });
 	}
-	return res.json({ highestStreak: userDoc.highestStreak });
+	return res.json({ highestStreak: userDoc.highestStreak, currentStreak: userDoc.currentStreak});
 } catch (err) {
 	console.error('Fetch streak error:', err);
 	res.status(500).json({ error: 'Could not fetch streak' });
@@ -164,6 +171,38 @@ app.get('/weekly-moods', requireAuth(), async (req, res) => {
 		console.error('Error fetching weekly moods:', err);
 		res.status(500).json({ error: 'Server error' });
 	}
+});
+
+app.get('/gemini-insight', requireAuth(), async (req, res) => {
+    const { userId } = req.auth;
+    try {
+        const userDoc = await moodsCollection.findOne({ userId });
+        if (!userDoc) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const mood_ratings = userDoc.mood
+            .sort((a, b) => new Date(b.date) - new Date(a.date)) // newest first
+            .slice(0, 7) // only the last 7 days
+            .map(entry => entry.mood); // extract just mood scores
+
+        const prompt = `In a small paragraph, based on my daily mood ratings from 0 to 10 over the past few days ${JSON.stringify(mood_ratings)}, give me a short summary of how I've been doing emotionally and suggest simple ways I can continue improving my mental health.`;
+
+        const apiKey = process.env.GEMINI_API_KEY;
+
+        const response = await axios.post(`${GEMINI_API_URL}?key=${apiKey}`, {
+            contents: [{
+                parts: [{ text: prompt }]
+            }]
+        });
+
+        const aiText = response.data.candidates[0].content.parts[0].text;
+        res.json({ response: aiText });
+
+    } catch (error) {
+        console.error('Error fetching Gemini response:', error.response?.data || error.message);
+        res.status(500).json({ error: 'Failed to get insight' });
+    }
 });
 
 const PORT = 5000;
